@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Theme } from "../shared/types/Themes";
 import { useAuth } from "../context/AuthContext";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 export const Route = createFileRoute("/")({
   component: FencingTournament,
@@ -9,10 +9,48 @@ export const Route = createFileRoute("/")({
 
 function FencingTournament() {
   const { theme, setTheme } = useAuth();
-  const [step, setStep] = useState<"setup" | "names" | "pool" | "bracket">("setup");
-  const [playerCount, setPlayerCount] = useState(5);
-  const [names, setNames] = useState<string[]>(Array(12).fill(""));
-  const [scores, setScores] = useState<Record<string, number>>({});
+
+  // --- ЛОГИКА СОХРАНЕНИЯ ---
+  
+  // Инициализация состояний из LocalStorage
+  const [step, setStep] = useState<"setup" | "names" | "pool" | "bracket">(() => {
+    return (localStorage.getItem("fencing_step") as any) || "setup";
+  });
+  
+  const [playerCount, setPlayerCount] = useState<number>(() => {
+    return Number(localStorage.getItem("fencing_playerCount")) || 5;
+  });
+
+  const [names, setNames] = useState<string[]>(() => {
+    const saved = localStorage.getItem("fencing_names");
+    return saved ? JSON.parse(saved) : Array(12).fill("");
+  });
+
+  const [scores, setScores] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem("fencing_scores");
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  // Автоматическое сохранение при любом изменении
+  useEffect(() => {
+    localStorage.setItem("fencing_step", step);
+    localStorage.setItem("fencing_playerCount", playerCount.toString());
+    localStorage.setItem("fencing_names", JSON.stringify(names));
+    localStorage.setItem("fencing_scores", JSON.stringify(scores));
+  }, [step, playerCount, names, scores]);
+
+  // Функция для очистки турнира
+  const resetTournament = () => {
+    if (confirm("Вы уверены, что хотите удалить все данные и начать заново?")) {
+      localStorage.removeItem("fencing_step");
+      localStorage.removeItem("fencing_playerCount");
+      localStorage.removeItem("fencing_names");
+      localStorage.removeItem("fencing_scores");
+      window.location.reload(); // Перезагружаем страницу для чистого состояния
+    }
+  };
+
+  // --- ОСТАЛЬНАЯ ЛОГИКА ---
 
   const currentTheme = useMemo(() => 
     Theme.find((t) => t.name === theme)?.config || Theme[0].config, 
@@ -38,19 +76,21 @@ function FencingTournament() {
     <div className={`min-h-screen ${currentTheme.mainContentBg} ${currentTheme.mainContentText} pb-10 transition-colors font-sans`}>
       <header className={`flex items-center justify-between p-4 border-b-2 ${currentTheme.mainContentBorder} ${currentTheme.sidebarBg}`}>
         <h1 className="text-xl font-black uppercase italic">Fencing Pro</h1>
-        <button onClick={() => setTheme(theme === "Светлая тема" ? "Тёмная тема" : "Светлая тема")} className="text-2xl">
-          {theme === "Светлая тема" ? "🌙" : "☀️"}
-        </button>
+        <div className="flex gap-4">
+            <button onClick={resetTournament} className="text-xs bg-red-500 text-white px-2 py-1 rounded font-bold uppercase">Сброс</button>
+            <button onClick={() => setTheme(theme === "Светлая тема" ? "Тёмная тема" : "Светлая тема")} className="text-2xl">
+            {theme === "Светлая тема" ? "🌙" : "☀️"}
+            </button>
+        </div>
       </header>
 
       <main className="p-4">
-        {/* 1. ВЫБОР КОЛИЧЕСТВА */}
         {step === "setup" && (
           <div className="flex flex-col items-center py-10 space-y-6">
-            <h2 className="text-2xl font-bold uppercase text-center">Сколько бойцов?</h2>
+            <h2 className="text-2xl font-bold uppercase text-center">Новый турнир</h2>
             <div className="grid grid-cols-4 gap-3">
               {[5,6,7,8,9,10,11,12].map(n => (
-                <button key={n} onClick={() => {setPlayerCount(n); setStep("names")}} className="w-14 h-14 text-lg font-black border-2 rounded-xl active:scale-90 transition-transform bg-white text-black">
+                <button key={n} onClick={() => {setPlayerCount(n); setStep("names")}} className="w-14 h-14 text-lg font-black border-2 rounded-xl bg-white text-black shadow-md">
                   {n}
                 </button>
               ))}
@@ -58,20 +98,18 @@ function FencingTournament() {
           </div>
         )}
 
-        {/* 2. ИМЕНА */}
         {step === "names" && (
           <div className="max-w-md mx-auto space-y-4">
-            <h2 className="text-xl font-black uppercase">Введите имена:</h2>
+            <h2 className="text-xl font-black uppercase">Имена участников</h2>
             {Array.from({ length: playerCount }).map((_, i) => (
               <input key={i} placeholder={`Боец №${i+1}`} value={names[i]} 
                 onChange={e => { const n = [...names]; n[i] = e.target.value; setNames(n); }} 
                 className="w-full p-4 border-2 rounded-2xl text-black font-bold text-lg" />
             ))}
-            <button onClick={() => setStep("pool")} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase">К пульке (до 5)</button>
+            <button onClick={() => setStep("pool")} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase">К пульке</button>
           </div>
         )}
 
-        {/* 3. ПУЛЬКА (ТАБЛИЦА) */}
         {step === "pool" && (
           <div className="space-y-6">
             <h2 className="text-xl font-black uppercase text-center">Протокол</h2>
@@ -107,24 +145,19 @@ function FencingTournament() {
                 </tbody>
               </table>
             </div>
-            <button onClick={() => setStep("bracket")} className="w-full py-5 bg-black text-white font-black rounded-2xl uppercase">К олимпийке (до 15)</button>
+            <button onClick={() => setStep("bracket")} className="w-full py-5 bg-black text-white font-black rounded-2xl uppercase">К олимпийке</button>
           </div>
         )}
 
-        {/* 4. ОЛИМПИЙКА (РУЧНАЯ) */}
         {step === "bracket" && (
           <div className="space-y-6 max-w-lg mx-auto">
-            <h2 className="text-2xl font-black uppercase text-center">Сетка на 15</h2>
-            
-            {/* Памятка по рейтингу */}
-            <div className="p-3 bg-gray-200 rounded-xl flex flex-wrap gap-2 text-[10px] text-black">
+            <h2 className="text-2xl font-black uppercase text-center">Сетка</h2>
+            <div className="p-3 bg-gray-200 rounded-xl flex flex-wrap gap-2 text-[10px] text-black italic">
                 {rankedPlayers.map((p, i) => <span key={i}>#{i+1} {p.name}({p.ind})</span>)}
             </div>
-
             <div className="space-y-4">
               {[1, 2, 3, 4].map(num => (
                 <div key={num} className="p-4 bg-white border-2 border-black rounded-3xl shadow-lg space-y-3 text-black">
-                  <div className="text-[10px] font-bold opacity-30 text-center">ПАРА №{num}</div>
                   <div className="flex items-center gap-2">
                     <select className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">
                       <option>-- Боец --</option>
@@ -132,6 +165,7 @@ function FencingTournament() {
                     </select>
                     <input type="number" placeholder="0" className="w-14 h-12 text-center border-2 rounded-xl font-black text-xl" />
                   </div>
+                  <div className="text-center text-[10px] font-black opacity-20">VS</div>
                   <div className="flex items-center gap-2">
                     <select className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">
                       <option>-- Боец --</option>
@@ -142,7 +176,7 @@ function FencingTournament() {
                 </div>
               ))}
             </div>
-            <button onClick={() => setStep("pool")} className="w-full py-3 opacity-50 font-bold uppercase">Назад в таблицу</button>
+            <button onClick={() => setStep("pool")} className="w-full py-3 opacity-50 font-bold uppercase">Назад</button>
           </div>
         )}
       </main>
